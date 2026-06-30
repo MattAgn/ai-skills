@@ -2,6 +2,7 @@
 name: upgrade-deps
 description: MANDATORY skill whenever the user mentions bumping, updating, or upgrading dependencies — triggers include "bump dep", "outdated", "update package", "upgrade dep", "package upgrade", "bump X to Y", "what's outdated". Enforces exact-version pinning, supply-chain sanity checks on lockfile diffs, and coordinated bumps for package families (a scope that appears more than once). Never recommends `@latest`.
 argument-hint: [package-name?]
+disable-model-invocation: true
 ---
 
 # Upgrading Dependencies
@@ -37,6 +38,7 @@ For each candidate:
    - **Advisory check**: cross-check the target against known security advisories. Registries only allow unpublish briefly after release — past that, a compromised version stays available indefinitely, so cooldown alone won't filter it.
 
    Check per-version publish dates, whether the target is deprecated, and run a vulnerability audit. If either check fails, don't bump — surface it. Don't mechanically pick "the version before latest"; if that's what's installed, there's no bump to do — wait.
+
 3. Majors: surface migration steps and have the user confirm the target version explicitly.
 
 ## Phase 4 — Coordinated package families

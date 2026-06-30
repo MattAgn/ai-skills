@@ -1,6 +1,7 @@
 ---
 name: document
 description: Best practices to write good documentation — code comments, READMEs, and architecture notes. Use when documenting a change, a module, or a non-obvious decision.
+disable-model-invocation: true
 ---
 
 # Writing good documentation

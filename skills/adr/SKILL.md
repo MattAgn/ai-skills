@@ -6,7 +6,7 @@ argument-hint: <problem to solve> [+ criteria ideas] [+ solution ideas]
 
 Turn a fuzzy "which option should we pick?" into a rigorous, defensible ADR. The engine is **grill-me**: interview the user until the problem is unambiguous, settle the decision criteria, settle the candidate solutions, score every solution against every criterion (1-5), recommend a winner — and only after the user approves, save the ADR.
 
-The point of an ADR is that the *reasoning* survives the decision: six months later it's what tells anyone why option A beat option B. Make the rationale explicit at every step, not just in the final score.
+The point of an ADR is that the _reasoning_ survives the decision: six months later it's what tells anyone why option A beat option B. Make the rationale explicit at every step, not just in the final score.
 
 ## Inputs
 
@@ -16,7 +16,7 @@ Three inputs, **all optional** — filling the gaps is the skill's job:
 2. **Decision criteria** — what "good" means here (e.g. bundle size, platform support). You'll critique and extend these.
 3. **Candidate solutions** — options on the table. You'll analyze and add to these.
 
-Parse what the user gave from `$ARGUMENTS` and the conversation. If an input is missing, **ask once** whether they have ideas, noting it's optional — proposing alternatives *is* the skill's value. Don't block on a missing input; an empty list is a fine start.
+Parse what the user gave from `$ARGUMENTS` and the conversation. If an input is missing, **ask once** whether they have ideas, noting it's optional — proposing alternatives _is_ the skill's value. Don't block on a missing input; an empty list is a fine start.
 
 ## Security — untrusted input (read first)
 
@@ -38,7 +38,7 @@ A matrix built on a misunderstood problem looks objective while being wrong. Loc
 
 Criteria are the spine of the ADR; bad ones produce a confident but meaningless score.
 
-1. **Critique proposed criteria.** Flag any that are vague ("good DX" — measured how?), redundant (two measuring the same thing inflate its weight), or non-discriminating (all options score identically). Say *why* each is weak.
+1. **Critique proposed criteria.** Flag any that are vague ("good DX" — measured how?), redundant (two measuring the same thing inflate its weight), or non-discriminating (all options score identically). Say _why_ each is weak.
 2. **Propose additional criteria** the user likely cares about but didn't name, grounded in Phase 1 constraints and how this codebase works. Typical axes: maintenance/health (last release, open issues), platform compatibility, size impact, performance, customizability, API ergonomics, type safety, community size, license.
 3. **Make each criterion concrete** — one line for what a 1 vs a 5 looks like. A criterion you can't anchor that way is too vague to keep.
 4. **Settle the list with the user before scoring** (checkpoint) — present the set, get explicit agreement (add/drop/reword). The user owns what "good" means.
@@ -62,11 +62,11 @@ Criteria are the spine of the ADR; bad ones produce a confident but meaningless 
 
 **One row per candidate**, **one column per criterion** (1-5 each), plus **Total** and **Status** columns. Hard-filtered options still get a row, with `Rejected` status and only the scores you can fill.
 
-| Solution | Criterion 1 | Criterion 2 | Criterion 3 | Total | Status |
-| -------- | ----------- | ----------- | ----------- | ----- | ------ |
-| Solution A | 4 | 3 | 5 | 12 | Pending |
-| Solution B | 2 | 5 | 4 | 11 | Pending |
-| Solution C (excluded: no platform support) | — | — | — | — | Rejected |
+| Solution                                   | Criterion 1 | Criterion 2 | Criterion 3 | Total | Status   |
+| ------------------------------------------ | ----------- | ----------- | ----------- | ----- | -------- |
+| Solution A                                 | 4           | 3           | 5           | 12    | Pending  |
+| Solution B                                 | 2           | 5           | 4           | 11    | Pending  |
+| Solution C (excluded: no platform support) | —           | —           | —           | —     | Rejected |
 
 `Status`: **Pending** (in the running), **Accepted** (recommended winner), **Rejected** (eliminated or lost). After the recommendation, set the winner to `Accepted` and the rest to `Rejected`.
 
