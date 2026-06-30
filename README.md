@@ -8,7 +8,7 @@ A collection of reusable, tool-agnostic [Claude Code skills](https://docs.claude
 
 | Skill | Purpose |
 | ----- | ------- |
-| [`feat`](skills/feat/SKILL.md) | Build a feature end-to-end (plan → implement → PR), or plan one read-only with `--investigate`. `--auto` runs unattended. |
+| [`feat`](skills/feat/SKILL.md) | Build a feature end-to-end (plan → implement → PR), or plan one read-only with `--investigate`. `--headless` runs without a human in the loop. |
 | [`fix`](skills/fix/SKILL.md) | Systematic debugging → fix → PR, with disciplined evidence-based hypotheses. `--investigate` triages read-only. |
 | [`refactor`](skills/refactor/SKILL.md) | Safe refactoring: tests-first, small green steps. Never refactor without tests, never break green. |
 | [`tech-ticket`](skills/tech-ticket/SKILL.md) | Author or sharpen a technical ticket through grill-me scoping + code-grounded planning. |
