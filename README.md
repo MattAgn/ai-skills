@@ -20,7 +20,7 @@ A collection of reusable, tool-agnostic [Claude Code skills](https://docs.claude
 | ----- | ------- |
 | [`grill-me`](skills/grill-me/SKILL.md) | Interview relentlessly until a plan/design is unambiguous. |
 | [`understand-project`](skills/understand-project/SKILL.md) | Ground work in existing code before planning or building. |
-| [`investigate-contract`](skills/investigate-contract/SKILL.md) | Read-only guarantee + interactive-vs-`--auto` contract for investigate modes. |
+| [`investigate-contract`](skills/investigate-contract/SKILL.md) | Read-only guarantee + interactive-vs-`--headless` contract for investigate modes. |
 | [`save-plan-to-tracker`](skills/save-plan-to-tracker/SKILL.md) | Append a plan/investigation block to an issue-tracker ticket, preserving the original. |
 
 ### Git & PRs

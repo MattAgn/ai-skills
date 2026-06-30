@@ -1,6 +1,6 @@
 ---
 name: investigate-contract
-description: Read-only guarantee + interactive-vs-autonomous (--auto) behavior for investigate modes. Internal helper invoked by the investigate mode of feat / refactor / fix — not meant to be run on its own.
+description: Read-only guarantee + interactive-vs-headless (--headless) behavior for investigate modes. Internal helper invoked by the investigate mode of feat / refactor / fix — not meant to be run on its own.
 disable-model-invocation: true
 ---
 
@@ -8,20 +8,20 @@ Applies whenever a skill runs with `--investigate`. The domain-specific output (
 
 ## Read-only (enforce yourself)
 
-Investigate mode is **strictly read-only**: never edit code, create a branch, or commit. Tools may not block you, so hold the line yourself. Your only writes are to the issue tracker (append the plan/investigation; the calling skill may add labels in autonomous mode). If your environment hard-blocks a tool call (no shell exec, egress, or writes elsewhere), don't work around it.
+Investigate mode is **strictly read-only**: never edit code, create a branch, or commit. Tools may not block you, so hold the line yourself. Your only writes are to the issue tracker (append the plan/investigation; the calling skill may add labels in headless mode). If your environment hard-blocks a tool call (no shell exec, egress, or writes elsewhere), don't work around it.
 
-## Interactive vs autonomous
+## Interactive vs headless
 
-`--investigate` is interactive by default; `--investigate --auto` is autonomous. The analysis is identical — only the human-in-the-loop differs:
+`--investigate` is interactive by default; `--investigate --headless` is headless. The analysis is identical — only the human-in-the-loop differs:
 
-|           | **Interactive** (`--investigate`)                                           | **Autonomous** (`--investigate --auto`)           |
+|           | **Interactive** (`--investigate`)                                           | **Headless** (`--investigate --headless`)         |
 | --------- | --------------------------------------------------------------------------- | ------------------------------------------------- |
 | Questions | May ask 1-2 targeted questions when a material ambiguity changes the output | **Never** ask — record the assumption and proceed |
-| Use case  | While the user is at their machine                                          | Unattended batch (e.g. nightly)                   |
+| Use case  | While the user is at their machine                                          | Headless batch (e.g. nightly)                     |
 
 ## Record assumptions instead of blocking
 
-When the ticket is underspecified, don't stall. Interactive: ask only the question(s) that _materially_ change the output; state every minor assumption explicitly in the posted block (label it "Assumptions made") and proceed. Autonomous: never ask — always record and continue. Visible assumptions beat a half-done investigation waiting on input.
+When the ticket is underspecified, don't stall. Interactive: ask only the question(s) that _materially_ change the output; state every minor assumption explicitly in the posted block (label it "Assumptions made") and proceed. Headless: never ask — always record and continue. Visible assumptions beat a half-done investigation waiting on input.
 
 ## Review before posting (interactive only)
 
@@ -29,4 +29,4 @@ The posted block is the deliverable, but in interactive mode the user is right t
 
 **Present it as clean, rendered Markdown — never the raw tracker block.** Tracker-flavored syntax (collapsible fences, leading separators, footers) renders as literal noise in chat. Translate the block into normal Markdown: real headings instead of collapsible toggles (every section expanded), keep tables/bullets as-is, drop the syntax artifacts and footer. Assemble the tracker-flavored block only when you write it, after approval.
 
-Autonomous (`--auto`) is the exception: no human to ask, so post directly — the tracker write is the deliverable and the only write. Never block a nightly run on approval.
+Headless (`--headless`) is the exception: no human to ask, so post directly — the tracker write is the deliverable and the only write. Never block a nightly run on approval.
