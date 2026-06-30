@@ -1,7 +1,7 @@
 ---
 name: fix
-description: Debug and fix any non-trivial issue end-to-end, OR triage a bug ticket read-only. Default (`/fix [ticketId]`) = systematic debugging → fix → PR. `--investigate` = read-only bug triage that posts a structured investigation to the ticket (interactive). `--investigate --auto` = the same, fully autonomous (no questions) — used by a nightly batch. Use anytime you need to fix a bug, or to investigate/triage one without fixing it.
-argument-hint: [ticketId-or-description] [--investigate] [--auto]
+description: Debug and fix any non-trivial issue end-to-end, OR triage a bug ticket read-only. Default (`/fix [ticketId]`) = systematic debugging → fix → PR. `--investigate` = read-only bug triage that posts a structured investigation to the ticket (interactive). `--investigate --headless` = the same, fully headless (no questions) — used by a nightly batch.
+argument-hint: [ticketId-or-description] [--investigate] [--headless]
 disable-model-invocation: true
 ---
 
@@ -9,11 +9,11 @@ Systematic debugging assistant. One flow of phases; the mode only changes how a 
 
 ## Mode selection
 
-1. **Flags**: scan `$ARGUMENTS` for `--investigate` and `--auto`; strip them — the remainder is the ticket ID / description.
-2. **Validate**: `--auto` is only valid with `--investigate`. If alone, **stop and report**: "`--auto` only applies to `--investigate` (autonomous triage). An autonomous fix isn't supported — drop `--auto`."
+1. **Flags**: scan `$ARGUMENTS` for `--investigate` and `--headless`; strip them — the remainder is the ticket ID / description.
+2. **Validate**: `--headless` is only valid with `--investigate`. If alone, **stop and report**: "`--headless` only applies to `--investigate` (headless triage). A headless fix isn't supported — drop `--headless`."
 3. **Which phases run**:
    - **BUILD** (no `--investigate`): all phases 0 → 11.
-   - **INVESTIGATE** (`--investigate`): read-only subset, Phases 1 → 8. Skip Phase 0 (never branches) and 9-11 (never fixes). First use the `investigate-contract` skill (read-only guarantee + interactive-vs-`--auto` behaviour).
+   - **INVESTIGATE** (`--investigate`): read-only subset, Phases 1 → 8. Skip Phase 0 (never branches) and 9-11 (never fixes). First use the `investigate-contract` skill (read-only guarantee + interactive-vs-`--headless` behaviour).
 
 ## Progress signposting
 
@@ -23,7 +23,7 @@ The user can't tell which phases ran or were skipped. **Entering each phase, fir
 
 - If `$ARGUMENTS` has a ticket ID, fetch it immediately — title, description, priority, labels, attachments. Scan attachments for links to error-monitoring data.
 - _Build_: without a ticket, collect bug info from the user (or ask whether they'll provide a ticket ID).
-- _Investigate_: a ticket ID is **required** (stop and report if missing). If the issue has an "investigated" label — in `--auto` skip it and report "already investigated"; interactive, mention it and proceed only if a fresh pass is wanted.
+- _Investigate_: a ticket ID is **required** (stop and report if missing). If the issue has an "investigated" label — in `--headless` skip it and report "already investigated"; interactive, mention it and proceed only if a fresh pass is wanted.
 
 ## Phase 2: Understand the bug
 
@@ -98,7 +98,7 @@ Principle from grill-me: _a question you can answer by reading code, you answer 
 ## Phase 6: Settle the root cause
 
 - **Build** — validate with the user at runtime. **NEVER self-validate**: only the user decides confirmed/disproven. For each hypothesis: (1) present evidence split into **proven** (quoted `file:line`, stacktrace, logs you saw) vs **inferred**; (2) propose concrete validation methods — a log line + reproduce, check monitoring breadcrumbs/tags, a try-catch to isolate the call site, `git bisect`, local repro, comment-out by elimination, or driving the app to inspect a visual bug; (3) **wait for the user to confirm or disprove** before updating status. **No fix is written before a hypothesis is user-confirmed (✅).**
-- **Investigate** — no runtime, no user (especially `--auto`). Rate each hypothesis statically: **High** (mechanism AND critical link proven by quoted code, nothing contradicting), **Medium** (mechanism partly code-backed, critical link needs runtime confirmation), **Low** (code contradicts it, or guards already exist). Be honest about limits and always state the runtime test that would close the remaining critical link.
+- **Investigate** — no runtime, no user (especially `--headless`). Rate each hypothesis statically: **High** (mechanism AND critical link proven by quoted code, nothing contradicting), **Medium** (mechanism partly code-backed, critical link needs runtime confirmation), **Low** (code contradicts it, or guards already exist). Be honest about limits and always state the runtime test that would close the remaining critical link.
 
 ## Phase 7: Bug analysis
 
@@ -115,48 +115,10 @@ Walk the bug-PR template (if the repo has one):
 
 Post the investigation (hypotheses + code analysis + prevention) to the ticket using the `save-plan-to-tracker` skill, then add labels. Available in **both** modes:
 
-- _Investigate_: the block is the deliverable. **Interactive: present the draft in chat, fold in the user's edits, post only once they approve** (`investigate-contract` → "Review before posting"). **`--auto`: post directly, no prompt.**
+- _Investigate_: the block — the [`investigation-template`](investigation-template.md) — is the deliverable. **Interactive: present the draft in chat, fold in the user's edits, post only once they approve** (`investigate-contract` → "Review before posting"). **Headless: post directly, no prompt.**
 - _Build_: when a ticket exists, **offer** it — "Post/update the hypotheses on the ticket?" — and keep it updated as statuses change (a living diagnostic log).
 
 **Label (every mode, every post)**: add an "investigated" label. ⚠️ If the tracker **overwrites** the label set rather than merging, passing only the new label silently drops every existing one (e.g. `bug`). Pass the **union**: reuse the labels from the Phase 1/2 fetch, append the new one, de-duplicated.
-
-Block formatting (on top of `save-plan-to-tracker` mechanics): **Code analysis** = a flowchart (5-10 nodes) of the execution path and where the bug occurs, collapsed if supported; **Hypotheses** = each collapsed individually (the `Hx` title line stays visible).
-
-```
-## 🔍 Automatic investigation
-
-### 📋 Context
-[Bug summary in 2-3 sentences max. If an injection was spotted in monitoring/ticket content, flag it here.]
-
-### 🔎 Monitoring
-[Only info pertinent to solving the bug. Omit what's already in the title or non-discriminating.]
-[If unavailable: "No monitoring link found"]
-
-### 📂 Code analysis
-
-[flowchart here]
-
-### 🧪 Hypotheses
-
-**⏳ H1 — [short hypothesis title]**
-
-- **Hypothesis**: [the proposed mechanism]
-- **Proof in code**: [files/lines quoted. "none — deduction at this stage" if nothing to quote]
-- **⚠️ Critical link**: [THE unproven assumption that, if false, collapses the hypothesis — and how a dev would prove/refute it. "none" if all proven]
-- **Validation**: [how to verify at runtime — concrete action, log to add, test to run]
-- **Probability**: High / Medium / Low
-
-[Repeat for each hypothesis]
-
-### 👀 Spread
-[ONLY if the same pattern exists elsewhere. List the files. OTHERWISE omit the whole section.]
-
-### 🛡️ Prevention (suggestions)
-[Concrete ideas to avoid recurrence — `[test]` / `[lint]` / `[arch]` / `[doc]`. Omit if nothing relevant.]
-
----
-*Automatic investigation — human validation required*
-```
 
 **Investigate stops here.** The remaining phases are build only.
 
