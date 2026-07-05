@@ -1,7 +1,7 @@
 ---
 name: fix
-description: Debug and fix any non-trivial issue end-to-end, OR triage a bug ticket read-only. Default (`/fix [ticketId]`) = systematic debugging → fix → PR. `--investigate` = read-only bug triage that posts a structured investigation to the ticket (interactive). `--investigate --headless` = the same, fully headless (no questions) — used by a nightly batch.
-argument-hint: [ticketId-or-description] [--investigate] [--headless]
+description: Debug and fix any non-trivial issue end-to-end, OR triage a bug ticket read-only. Default (`/fix [ticketId]`) = systematic debugging → fix → PR. `--code-autopilot` = same, but once the root cause is user-confirmed the fix runs hands-off to a PR. `--investigate` = read-only bug triage that posts a structured investigation to the ticket (interactive). `--investigate --headless` = the same, fully headless (no questions) — used by a nightly batch.
+argument-hint: [ticketId-or-description] [--investigate] [--code-autopilot] [--headless]
 disable-model-invocation: true
 ---
 
@@ -9,11 +9,21 @@ Systematic debugging assistant. One flow of phases; the mode only changes how a 
 
 ## Mode selection
 
-1. **Flags**: scan `$ARGUMENTS` for `--investigate` and `--headless`; strip them — the remainder is the ticket ID / description.
-2. **Validate**: `--headless` is only valid with `--investigate`. If alone, **stop and report**: "`--headless` only applies to `--investigate` (headless triage). A headless fix isn't supported — drop `--headless`."
+1. **Flags**: scan `$ARGUMENTS` for `--investigate`, `--code-autopilot`, and `--headless`; strip them — the remainder is the ticket ID / description.
+2. **Validate**:
+   - `--headless` is only valid with `--investigate`. If alone, **stop and report**: "`--headless` only applies to `--investigate` (headless triage). A headless fix isn't supported — drop `--headless`." (A *fully* headless fix is unsafe because it would self-validate the root cause; `--code-autopilot` is the hands-off fix mode — it keeps root-cause confirmation interactive.)
+   - `--code-autopilot` is **build-only** — invalid with `--investigate` (nothing to execute); if both are passed, stop and report.
 3. **Which phases run**:
    - **BUILD** (no `--investigate`): all phases 0 → 11.
    - **INVESTIGATE** (`--investigate`): read-only subset, Phases 1 → 8. Skip Phase 0 (never branches) and 9-11 (never fixes). First use the `investigate-contract` skill (read-only guarantee + interactive-vs-`--headless` behaviour).
+
+## Code autopilot (`--code-autopilot`)
+
+**Interactive debugging, then hands-off fix.** You stay in the loop for every _thinking_ step — the whole diagnostic through the chosen fix approach — then let the fix run itself to a PR. The one thing you never review is the individual commits.
+
+- **Thinking stays interactive** — Phases 1-9 behave exactly as **interactive build**. Critically, **Phase 6 root-cause confirmation is NOT lifted**: no fix is written before you confirm a hypothesis (✅). This is why a fully headless fix is unsupported but code-autopilot is safe — the dangerous self-validation stays with the human.
+- **Execution goes hands-off** — from Phase 10 on, follow the **_code-autopilot_ tags**: apply the fix + spread + prevention, mutation-smoke any test written, run the green gate, then commit directly (no per-commit review) and self-repair while it converges (per the failure discipline the headless builds use).
+- **Opens a ready PR directly** — Phase 11 opens a **ready** PR (root cause and fix were human-approved), skipping the wait gate. Never merge.
 
 ## Progress signposting
 
@@ -140,7 +150,9 @@ Types: **Patch** (guard clause, null check), **Structural** (fix the pattern/arc
 - **STOP before committing — even for a one-file change.** Mandatory. List changed files, summarize, say: "Fix ready. Please review in your editor and confirm when ready to commit." Do NOT commit without explicit approval. Never skip this.
 - Once the user confirms → commit via the `commit` skill.
 
+_Code-autopilot: skip the STOP gate — mutation-smoke any test written (break code → red → revert), run the green gate (type-check + lint + format + tests), then commit directly and self-repair while it converges (each round must clear a distinct new failure; on a repeat/no-progress, do not open a PR — flag the owner and stop). The Phase 6 root-cause confirmation still held, so there is a user-approved hypothesis behind this fix._
+
 ## Phase 11: Review & PR — _build only_
 
-1. **Review (pre-PR)** — run a code-review pass on the current diff (a subagent works well). Surface findings; **address criticals** (real bugs, regressions in the fix) before the PR; note the rest for the user. Keep it lightweight — a gate, not a second debugging loop.
-2. **Open PR** — assemble from Phase 7 (fill the "after" snippet; "before" was captured there). Commit fix + tests + spread fixes. Use the `open-pr` skill with the `[Fix]` prefix and the `bug` label.
+1. **Review (pre-PR)** — run a code-review pass on the current diff (a subagent works well). Surface findings; **address criticals** (real bugs, regressions in the fix) before the PR; note the rest for the user. Keep it lightweight — a gate, not a second debugging loop. _Code-autopilot: fix criticals yourself before the PR._
+2. **Open PR** — assemble from Phase 7 (fill the "after" snippet; "before" was captured there). Commit fix + tests + spread fixes. Use the `open-pr` skill with the `[Fix]` prefix and the `bug` label. _Code-autopilot: skip the confirmation wait — open a **ready** PR directly (root cause and fix were approved), leading the body with a **🐞 Suspected bugs** section from the review pass. Never merge._

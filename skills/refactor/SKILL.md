@@ -1,7 +1,7 @@
 ---
 name: refactor
-description: Refactor safely end-to-end (issue-tracker ticket or free-text → tests-first → small green steps → PR), OR plan one read-only with `--investigate`. Add `--headless` to run headless (never asks; build stops at a draft PR, still tests-first). Core principle: never refactor without tests, never break green.
-argument-hint: [area-or-ticketId] [--investigate] [--headless]
+description: Refactor safely end-to-end (issue-tracker ticket or free-text → tests-first → small green steps → PR), OR plan one read-only with `--investigate`. Add `--headless` to run headless (never asks; stops at a draft PR, still tests-first), or `--code-autopilot` to plan interactively then refactor hands-off to a PR. Core principle: never refactor without tests, never break green.
+argument-hint: [area-or-ticketId] [--investigate] [--code-autopilot] [--headless]
 disable-model-invocation: true
 ---
 
@@ -13,17 +13,20 @@ Inspired by **Martin Fowler** (behaviour-preserving refactoring catalog), **Kent
 
 ## Mode selection
 
-1. **Flags**: scan `$ARGUMENTS` for `--investigate` and `--headless`; strip them out — the rest is the ticket ID / area.
-2. **Resolve the mode** — the two flags are independent:
+1. **Flags**: scan `$ARGUMENTS` for `--investigate`, `--code-autopilot`, and `--headless`; strip them out — the rest is the ticket ID / area.
+2. **Resolve the mode**:
 
    | Flags                  | Mode                        | Behaviour                                                                                          |
    | ---------------------- | --------------------------- | -------------------------------------------------------------------------------------------------- |
    | _(none)_               | **interactive build**       | full refactor, human in the loop (default)                                                         |
+   | `--code-autopilot`          | **code-autopilot build**         | interactive planning → hands-off execution to a PR (see [Code autopilot](#code-autopilot---code-autopilot))       |
    | `--headless`               | **headless build**          | full refactor, headless → stops at a draft PR (see [Headless build](#headless-build---headless)) |
    | `--investigate`        | **interactive investigate** | read-only plan, human in the loop                                                                  |
    | `--investigate --headless` | **headless investigate**  | read-only plan, headless                                                                         |
 
-3. **Which phases run** (decided by `--investigate` alone; `--headless` only changes _how_ phases behave, never which run):
+   `--code-autopilot` is **build-only** — invalid with `--investigate` (nothing to execute); if both are passed, stop and report. If both `--code-autopilot` and `--headless` are passed, `--headless` wins.
+
+3. **Which phases run** (decided by `--investigate` alone; `--code-autopilot` / `--headless` only change _how_ phases behave, never which run):
    - **BUILD** (no `--investigate`): all phases 0 → 9, in strict order: safety-net tests (Phase 3) → plan + grill (Phase 4) → code (Phase 6). Never skip earlier phases. `--headless` keeps this order — it removes approval gates, never the tests-first sequence.
    - **INVESTIGATE** (`--investigate`): read-only subset, Phases 1 → 5. Skip Phase 0 (never branches) and Phases 6-9 (never refactors). First use the `investigate-contract` skill (read-only guarantee + interactive-vs-`--headless` behaviour).
 
@@ -47,6 +50,14 @@ Verification & failure (the headless safety core):
 - **Stop at the draft PR** — open a draft; lead the body with a **⚠️ banner** of scope assumptions taken and any review-flagged behaviour-drift, plus a **🐞 Suspected bugs** section. Never mark it ready or merge.
 
 > **Commit exception (build):** characterization tests (Phase 3) get their **own commit BEFORE refactoring begins** — overriding the commit skill's "tests with change" rule. They capture existing behaviour and are the deliverable of Phase 3, not paired with a code change.
+
+## Code autopilot (`--code-autopilot`)
+
+**Interactive planning, then headless execution.** You stay in the loop for every _thinking_ step, then sign off the plan and let the refactor run itself to a PR — the one thing you never review is the individual commits.
+
+- **Thinking stays interactive** — Phase 1 scope resolution and Phase 4 `grill-me` + plan approval behave exactly as **interactive build**. Code-autopilot does not skip a single question before the plan is approved.
+- **Execution goes hands-off** — the Phase 3 safety-net commit, the Phase 6 step commits, Phase 7 verify, and Phase 9 review follow the **_headless_ tags** on each phase (mutation-smoke, adversarial review, self-repair, green gate, commit directly, no per-commit review). The safety net is still **FIRST** — same as headless, tests-first is never lifted.
+- **Opens a ready PR directly** — unlike headless, code-autopilot opens a **ready** PR (the plan was human-approved), skipping the wait gate. Lead the body with a **🐞 Suspected bugs** section plus any assumption taken _during execution_ (planning was interactive, so scope assumptions are few). Never merge.
 
 ## Progress signposting
 
@@ -77,7 +88,7 @@ Output: the target pattern to align with (point at a file that already follows i
 - **Build** — guarantee a green safety net **before any code change**:
   1. If coverage is sufficient, confirm it and move on.
   2. If insufficient, write **characterization tests** (Feathers) — capture _current_ behaviour, not ideal behaviour. Read existing tests first and follow their patterns; implement one at a time, verifying each passes. All must pass.
-  3. **STOP before committing — even though these are "just tests."** Mandatory, never skip. List the test files, summarize the behaviour they pin down, and say: "Characterization tests ready. Please review and confirm when ready to commit." Do NOT commit without explicit approval. Same gate as Phase 6 — and this is exactly where it tends to get skipped, so hold it. _Headless: skip the approval wait, but first **mutation-smoke** the char tests (break code → must go red → revert); once they bite and are green, commit them directly (still test-only, before any refactor)._
+  3. **STOP before committing — even though these are "just tests."** Mandatory, never skip. List the test files, summarize the behaviour they pin down, and say: "Characterization tests ready. Please review and confirm when ready to commit." Do NOT commit without explicit approval. Same gate as Phase 6 — and this is exactly where it tends to get skipped, so hold it. _Headless / code-autopilot: skip the approval wait, but first **mutation-smoke** the char tests (break code → must go red → revert); once they bite and are green, commit them directly (still test-only, before any refactor)._
   4. Once the user confirms (interactive) → **commit the characterization tests**, before any refactoring, via the `commit` skill with a `test:` prefix. ONLY test files — zero production code (the commit exception above).
      - **Exception — new pure-function extraction**: when the plan extracts a NEW pure function, its stub (signature + minimal implementation copied from existing logic) may ride in the test commit so tests can import it. Direct copy of existing logic, not new behaviour.
 - **Investigate** — no code written; **assess** the net instead. Classify each affected area as **Sufficient** (behaviour to preserve is covered → plan goes straight to refactor steps), **Partial** (gaps on critical branches → plan lists char tests to fill them), or **None** (untested → plan lists char tests to write first). This drives the "Safety net" section of the posted plan.
@@ -146,7 +157,7 @@ Core loop (repeat for each step from the Phase 4 plan):
 3. **STOP before committing — even for a one-file change.** Mandatory, never skip. List changed files, summarize, say: "Step N done. Please review in your editor and confirm when ready to commit." Do NOT commit without explicit approval.
 4. Once the user confirms → commit via the `commit` skill. Refactoring commits contain production code + snapshot updates caused by it; NOT new test files (those belong to the Phase 3 commit).
 
-_Headless: skip steps 3-4 — once the suite is green, commit directly and move on (a step that breaks tests for a non-structural reason is reverted at step 2, never committed red)._
+_Headless / code-autopilot: skip steps 3-4 — once the suite is green, commit directly and move on (a step that breaks tests for a non-structural reason is reverted at step 2, never committed red)._
 
 ### Checklist
 
@@ -157,7 +168,7 @@ _Headless: skip steps 3-4 — once the suite is green, commit directly and move 
 
 ## Phase 7: Verify — _build only_
 
-Run the full suite. If the refactor touched UI, drive the app to the affected screen and confirm there is **no** visual change. Check for regressions in related modules. Propose manual verification steps for the user. _Headless: gate on the full check suite instead; skip interactive UI checks (automated tests only) — flag "visual verification required" in the PR._
+Run the full suite. If the refactor touched UI, drive the app to the affected screen and confirm there is **no** visual change. Check for regressions in related modules. Propose manual verification steps for the user. _Headless / code-autopilot: gate on the full check suite instead; skip interactive UI checks (automated tests only) — flag "visual verification required" in the PR._
 
 ## Phase 8: Document — _build only_
 
@@ -165,5 +176,5 @@ Delegate to the `document` skill. Only for architecture deviations, non-obvious 
 
 ## Phase 9: Review & PR — _build only_
 
-1. **Review (pre-PR)** — run a code-review pass on the current diff (a subagent works well). Surface its findings; **address criticals** (especially behaviour drift) before the PR; note the rest for the user. Keep it lightweight — a gate, not a second refactor loop. _Headless: fix criticals yourself, then self-repair per [Headless build](#headless-build---headless)._
-2. **Open PR** — ensure all tests pass, propose manual verification steps for the reviewer, **wait for user confirmation**, then use the `open-pr` skill with the `[Refactor]` prefix. _Headless: gate on the full check suite (not just tests), skip the wait, then `open-pr` (draft) with the ⚠️ assumptions banner + 🐞 Suspected bugs, and stop._
+1. **Review (pre-PR)** — run a code-review pass on the current diff (a subagent works well). Surface its findings; **address criticals** (especially behaviour drift) before the PR; note the rest for the user. Keep it lightweight — a gate, not a second refactor loop. _Headless / code-autopilot: fix criticals yourself, then self-repair per [Headless build](#headless-build---headless)._
+2. **Open PR** — ensure all tests pass, propose manual verification steps for the reviewer, **wait for user confirmation**, then use the `open-pr` skill with the `[Refactor]` prefix. _Headless: gate on the full check suite (not just tests), skip the wait, then `open-pr` (draft) with the ⚠️ assumptions banner + 🐞 Suspected bugs, and stop._ _Code-autopilot: same green gate, skip the wait, then `open-pr` (**ready**, plan was approved) with the 🐞 Suspected bugs section._

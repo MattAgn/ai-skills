@@ -26,6 +26,8 @@ Always present the full plan and wait for explicit approval before running `git 
 
 Wait for approval; if the user requests changes, adjust and re-present. This applies to regular commits, fixups, and commits triggered during the open-pr workflow.
 
+**Exception — autonomous callers.** When invoked from a skill running in an autonomous mode (`--headless`, or `--code-autopilot` past its plan-approval gate), skip the confirmation and commit directly — that caller has already established there is no per-commit review. The message format and atomic-split rules below still apply.
+
 ## Auto-Fixup Detection
 
 Before creating a new commit, check whether the staged changes belong in a recent commit on the current branch:

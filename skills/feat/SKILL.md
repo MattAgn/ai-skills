@@ -1,7 +1,7 @@
 ---
 name: feat
-description: Build a feature end-to-end (issue-tracker ticket or free-text → plan → implement → PR), OR plan one read-only with `--investigate`. Add `--headless` to run headless (never asks; build stops at a draft PR). Use to build a feature, or to plan one ahead without writing code.
-argument-hint: [ticketId-or-description] [--investigate] [--headless]
+description: Build a feature end-to-end (issue-tracker ticket or free-text → plan → implement → PR), OR plan one read-only with `--investigate`. Add `--headless` to run headless (never asks; stops at a draft PR), or `--code-autopilot` to plan interactively then build hands-off to a PR. Use to build a feature, or to plan one ahead without writing code.
+argument-hint: [ticketId-or-description] [--investigate] [--code-autopilot] [--headless]
 disable-model-invocation: true
 ---
 
@@ -9,17 +9,20 @@ Full feature lifecycle orchestrator. One flow of phases; the mode only changes h
 
 ## Mode selection
 
-1. **Flags**: scan `$ARGUMENTS` for `--investigate` and `--headless`; strip them — the rest is the ticket ID / description.
-2. **Resolve the mode** — the flags are independent, giving four combinations:
+1. **Flags**: scan `$ARGUMENTS` for `--investigate`, `--code-autopilot`, and `--headless`; strip them — the rest is the ticket ID / description.
+2. **Resolve the mode**:
 
    | Flags                  | Mode                        | Behaviour                                                                                       |
    | ---------------------- | --------------------------- | ----------------------------------------------------------------------------------------------- |
    | _(none)_               | **interactive build**       | full build, human in the loop (default)                                                         |
+   | `--code-autopilot`          | **code-autopilot build**         | interactive planning → hands-off execution to a PR (see [Code autopilot](#code-autopilot---code-autopilot))    |
    | `--headless`               | **headless build**          | full build, headless → stops at a draft PR (see [Headless build](#headless-build---headless))       |
    | `--investigate`        | **interactive investigate** | read-only plan, human in the loop                                                               |
    | `--investigate --headless` | **headless investigate**    | read-only plan, headless                                                                        |
 
-3. **Which phases run** (decided by `--investigate` alone; `--headless` only changes _how_ a phase behaves, never which run):
+   `--code-autopilot` is **build-only** — invalid with `--investigate` (nothing to execute); if both are passed, stop and report. If both `--code-autopilot` and `--headless` are passed, `--headless` wins (more autonomous).
+
+3. **Which phases run** (decided by `--investigate` alone; `--code-autopilot` / `--headless` only change _how_ a phase behaves, never which run):
    - **BUILD** (no `--investigate`): all phases, 0 → 8.
    - **INVESTIGATE** (`--investigate`): read-only subset, Phases 1 → 4. Skip Phase 0 (never branches) and Phases 5-8 (never implements). First use the `investigate-contract` skill (read-only guarantee + interactive-vs-`--headless` behaviour).
 
@@ -40,6 +43,14 @@ Verification & failure (the headless safety core):
 - **Adversarial review** — run a code-review pass, fix criticals yourself, note the rest in the PR.
 - **Self-repair while it converges** — review rejects or checks won't go green → fix and retry, as long as **each round clears a distinct new failure** (no fixed retry cap). The moment a round **repeats a failure or makes no progress** → **do not open a PR**: flag the ticket's owner with the reason (a ticket comment; no ticket → report in the run output), then stop. **Never push red, never open a failing PR, never loop on the same failure.**
 - **Stop at the draft PR** — open a draft; lead the body with a **⚠️ banner** listing each recorded assumption ("observed behaviour, assumed intended — to confirm") and a **🐞 Suspected bugs** section. Never mark ready or merge.
+
+## Code autopilot (`--code-autopilot`)
+
+**Interactive planning, then headless execution.** You stay in the loop for every _thinking_ step, then sign off the plan and let the build run itself to a PR — the one thing you never review is the individual commits.
+
+- **Thinking stays interactive** — Phase 1 scope questions and Phase 3 `grill-me` + plan approval behave exactly as **interactive build**. Code-autopilot does not skip a single question before the plan is approved.
+- **Execution goes hands-off** — from Phase 5 on, follow the **_headless_ tags** on each phase (mutation-smoke, adversarial review, self-repair, green gate, commit each step directly, no per-commit review).
+- **Opens a ready PR directly** — unlike headless, code-autopilot opens a **ready** PR (the plan was human-approved), skipping the wait gate. Lead the body with a **🐞 Suspected bugs** section plus any assumption taken _during execution_ (planning was interactive, so scope assumptions are few). Never merge.
 
 ## Progress signposting
 
@@ -86,7 +97,7 @@ Post the [`investigate-plan-template`](investigate-plan-template.md) block (on t
 
 ## Phase 5: Test plan — _build only_
 
-Define the testing strategy before implementing. Check for missing tests on the touched feature and propose to write them. Present a test-plan table (Unit / Integration / E2E — scenario + file); user confirms. Tests are written in Phase 6 alongside the code. _Headless: define the plan and proceed without confirmation._
+Define the testing strategy before implementing. Check for missing tests on the touched feature and propose to write them. Present a test-plan table (Unit / Integration / E2E — scenario + file); user confirms. Tests are written in Phase 6 alongside the code. _Headless / code-autopilot: define the plan and proceed without confirmation._
 
 ## Phase 6: Implement & verify — _build only_
 
@@ -96,7 +107,7 @@ Core loop (repeat per commit from the Phase 3 plan):
 
 1. Write code + tests for ONE logical chunk. Read existing tests first and follow their patterns; propose scenarios and implement one at a time.
 2. Run the test suite — must stay green. Snapshot failures from ONLY expected structural changes → update them, verify the diff makes sense, proceed. Tests breaking for other reasons → fix first. Include updated snapshots in the same commit as the code that caused them.
-3. **STOP before committing — even for a one-file change.** Mandatory, never skip. List changed files, summarize, say: "Step N done. Please review in your editor and confirm when ready to commit." Do NOT commit without explicit approval. _Headless: skip steps 3-4 — mutation-smoke any test written (break code → red → revert), then once green commit directly and continue._
+3. **STOP before committing — even for a one-file change.** Mandatory, never skip. List changed files, summarize, say: "Step N done. Please review in your editor and confirm when ready to commit." Do NOT commit without explicit approval. _Headless / code-autopilot: skip steps 3-4 — mutation-smoke any test written (break code → red → revert), then once green commit directly and continue._
 4. Once the user confirms → commit via the `commit` skill.
 
 ### Implementation checklist
@@ -107,7 +118,7 @@ Core loop (repeat per commit from the Phase 3 plan):
 - [ ] Validate route params / inputs; handle the not-found / invalid path
 - [ ] Follow the project's styling and import conventions
 
-For UI changes: drive the app to the affected screen, observe/screenshot it, and verify visually before asking the user to review. Fetch version-matched library docs when needed. _Headless: skip interactive UI checks (automated tests only) — flag "visual verification required" in the PR instead._
+For UI changes: drive the app to the affected screen, observe/screenshot it, and verify visually before asking the user to review. Fetch version-matched library docs when needed. _Headless / code-autopilot: skip interactive UI checks (automated tests only) — flag "visual verification required" in the PR instead._
 
 ## Phase 7: Document — _build only_
 
@@ -115,5 +126,5 @@ Delegate to the `document` skill. Only for hacks, WHY reasoning, architecture de
 
 ## Phase 8: Review & PR — _build only_
 
-1. **Review (pre-PR)** — run a code-review pass on the current diff (a subagent works well). Surface findings; **address criticals** before the PR; note the rest for the user. Keep it lightweight — a gate, not a second build loop. _Headless: fix criticals yourself, then self-repair per [Headless build](#headless-build---headless)._
-2. **Open PR** — ensure all tests pass, propose manual test scenarios for the reviewer, **wait for user confirmation**, then use the `open-pr` skill with the `[Feat]` prefix. _Headless: gate on the full check suite (not just tests), skip the wait, then `open-pr` (draft) with the ⚠️ assumptions banner + 🐞 Suspected bugs, and stop._
+1. **Review (pre-PR)** — run a code-review pass on the current diff (a subagent works well). Surface findings; **address criticals** before the PR; note the rest for the user. Keep it lightweight — a gate, not a second build loop. _Headless / code-autopilot: fix criticals yourself, then self-repair per [Headless build](#headless-build---headless)._
+2. **Open PR** — ensure all tests pass, propose manual test scenarios for the reviewer, **wait for user confirmation**, then use the `open-pr` skill with the `[Feat]` prefix. _Headless: gate on the full check suite (not just tests), skip the wait, then `open-pr` (draft) with the ⚠️ assumptions banner + 🐞 Suspected bugs, and stop._ _Code-autopilot: same green gate, skip the wait, then `open-pr` (**ready**, plan was approved) with the 🐞 Suspected bugs section._
