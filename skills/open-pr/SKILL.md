@@ -29,5 +29,5 @@ Blockquote (`>`) lines are instructions to the author, not content — strip the
 
 Include conditional sections only when they apply; otherwise remove them entirely. Common cases:
 
-- **Screenshot/mockup table** — keep only if the change is visual (alters what the user sees). Leave the cells blank for the user to fill. Remove it for non-visual changes (refactor, config, build/CI, pure logic).
+- **Screenshot/mockup table** — keep only if the change is visual (alters what the user sees). For a web-app UI change, capture the affected screen(s) — reuse the verification shots, or drive the browser now (a short series when the change spans a multi-step flow). Save each to a file and display it in the chat (read the image back) so the user can grab it, then leave the table cells holding the file paths plus a one-line note: drag these into the PR to embed them (GitHub can't upload via CLI). Remove the section entirely for non-visual changes (refactor, config, build/CI, pure logic).
 - **Experiments / notable approaches** — keep only if something genuinely new or experimental was done. Remove it for routine work.
