@@ -1,74 +1,36 @@
 ---
 name: feat
-description: Build a feature end-to-end (issue-tracker ticket or free-text → plan → implement → PR), OR plan one read-only with `--investigate`. Add `--headless` to run headless (never asks; stops at a draft PR), or `--code-autopilot` to plan interactively then build hands-off to a PR. Use to build a feature, or to plan one ahead without writing code.
-argument-hint: [ticketId-or-description] [--investigate] [--code-autopilot] [--headless]
+description: Build a feature end-to-end — issue-tracker ticket or free-text → plan → implement → merged PR. Attended by default (agent auto-decides whether to challenge the plan; you validate the running app, then review + merge). `--unattended` for cloud/CI (task → draft PR, no human). `--review-commits` to gate each commit; `--auto-merge` to skip the PR review.
+argument-hint: [ticketId-or-description] [--unattended] [--review-commits] [--auto-merge]
 disable-model-invocation: true
 ---
 
-Full feature lifecycle orchestrator. One flow of phases; the mode only changes how a few phases behave (tagged inline).
+Full feature lifecycle orchestrator. Resolve the run mode via the `run-mode` skill (attended by default, `--unattended` for cloud/CI), then apply this skill's checkpoint map. Signpost each phase and print the resolved mode + toggles up front (`run-mode` → "Signpost each phase").
 
-## Mode selection
+## Mode & checkpoints
 
-1. **Flags**: scan `$ARGUMENTS` for `--investigate`, `--code-autopilot`, and `--headless`; strip them — the rest is the ticket ID / description.
-2. **Resolve the mode**:
+This skill's [`run-mode`](../run-mode/SKILL.md) checkpoints map to:
 
-   | Flags                  | Mode                        | Behaviour                                                                                       |
-   | ---------------------- | --------------------------- | ----------------------------------------------------------------------------------------------- |
-   | _(none)_               | **interactive build**       | full build, human in the loop (default)                                                         |
-   | `--code-autopilot`          | **code-autopilot build**         | interactive planning → hands-off execution to a PR (see [Code autopilot](#code-autopilot---code-autopilot))    |
-   | `--headless`               | **headless build**          | full build, headless → stops at a draft PR (see [Headless build](#headless-build---headless))       |
-   | `--investigate`        | **interactive investigate** | read-only plan, human in the loop                                                               |
-   | `--investigate --headless` | **headless investigate**    | read-only plan, headless                                                                        |
+| Checkpoint         | Where                                          | Halts when                          |
+| ------------------ | ---------------------------------------------- | ----------------------------------- |
+| **Plan** (auto)    | Phase 1 scope + Phase 3 plan                   | agent routes: accept / grill / wayfinder |
+| **Commits**        | Phase 5 per-commit                             | `--review-commits`                  |
+| **App works**      | Phase 7 before the PR                          | always (attended)                   |
+| **PR**             | Phase 7 open + merge                           | default; skipped by `--auto-merge`  |
 
-   `--code-autopilot` is **build-only** — invalid with `--investigate` (nothing to execute); if both are passed, stop and report. If both `--code-autopilot` and `--headless` are passed, `--headless` wins (more autonomous).
-
-3. **Which phases run** (decided by `--investigate` alone; `--code-autopilot` / `--headless` only change _how_ a phase behaves, never which run):
-   - **BUILD** (no `--investigate`): all phases, 0 → 8.
-   - **INVESTIGATE** (`--investigate`): read-only subset, Phases 1 → 4. Skip Phase 0 (never branches) and Phases 5-8 (never implements). First use the `investigate-contract` skill (read-only guarantee + interactive-vs-`--headless` behaviour).
-
-## Headless build (`--headless`)
-
-`--headless` without `--investigate` runs the full build **headless** — no human at the terminal. Every phase runs, human gates lifted, the **draft PR the terminal deliverable**. The prior the word recruits: a headless run has no one to ask, so it **never blocks on input** — when underspecified, record an "Assumption made" and proceed.
-
-Lifted vs interactive build:
-
-- **No questions** — skip `grill-me` and every "ask the user" step.
-- **No approval gates** — branch, commits, and PR happen without confirmation.
-- **Automated checks only** — no interactive UI/manual checks (flaky headless, the #1 false "it works"). For UI changes, add "visual verification required" to the PR's manual-test scenarios.
-
-Verification & failure (the headless safety core):
-
-- **Green gate, full check suite** — before the PR, run the project's full checks (type-check + lint + format + tests); auto-fix what's auto-fixable. Loop commits still require green tests first.
-- **Mutation-smoke every test you write** — break the code under test; the test must go red, then **revert the mutation** (committing mutated code ships a broken build). A test asserting nothing fakes the safety net; judge by mutations caught, never coverage %.
-- **Adversarial review** — run a code-review pass, fix criticals yourself, note the rest in the PR.
-- **Self-repair while it converges** — review rejects or checks won't go green → fix and retry, as long as **each round clears a distinct new failure** (no fixed retry cap). The moment a round **repeats a failure or makes no progress** → **do not open a PR**: flag the ticket's owner with the reason (a ticket comment; no ticket → report in the run output), then stop. **Never push red, never open a failing PR, never loop on the same failure.**
-- **Stop at the draft PR** — open a draft; lead the body with a **⚠️ banner** listing each recorded assumption ("observed behaviour, assumed intended — to confirm") and a **🐞 Suspected bugs** section. Never mark ready or merge.
-
-## Code autopilot (`--code-autopilot`)
-
-**Interactive planning, then headless execution.** You stay in the loop for every _thinking_ step, then sign off the plan and let the build run itself to a PR — the one thing you never review is the individual commits.
-
-- **Thinking stays interactive** — Phase 1 scope questions and Phase 3 `grill-me` + plan approval behave exactly as **interactive build**. Code-autopilot does not skip a single question before the plan is approved.
-- **Execution goes hands-off** — from Phase 5 on, follow the **_headless_ tags** on each phase (mutation-smoke, adversarial review, self-repair, green gate, commit each step directly, no per-commit review).
-- **Opens a ready PR directly** — unlike headless, code-autopilot opens a **ready** PR (the plan was human-approved), skipping the wait gate. Lead the body with a **🐞 Suspected bugs** section plus any assumption taken _during execution_ (planning was interactive, so scope assumptions are few). Never merge.
-
-## Progress signposting
-
-The user otherwise can't tell which phases ran or were skipped. **On entering each phase, print a one-line signpost first** — `▶ Phase N — <short phase name>` — then do the work. One terse line, no preamble or recap. Don't signpost phases the active mode skips.
+`--unattended` lifts every human checkpoint: task → draft PR, never asks, never merges (`run-mode` → "`--unattended`"). Autonomous stretches follow the [execution core](../run-mode/SKILL.md#execution-core).
 
 ## Phase 1: Understand requirements
 
-1. If `$ARGUMENTS` has a ticket ID, fetch it immediately — title, description, priority, labels, attachments. _Investigate_: save the full existing description verbatim (you append in Phase 4, never overwrite).
-2. _Build_: without a ticket, treat `$ARGUMENTS` as free-text; if empty, ask for a ticket ID or description (_headless: empty → stop and report, never ask_). _Investigate_: a ticket ID is **required** (stop and report if missing).
+1. If `$ARGUMENTS` has a ticket ID, fetch it immediately — title, description, priority, labels, attachments.
+2. Without a ticket, treat `$ARGUMENTS` as free-text; if empty, ask for a ticket ID or description (_unattended: empty → stop and report, never ask_).
 3. **Parse** the title (module hint from brackets, e.g. `[Auth]` → auth module) and description (user-facing goal, acceptance criteria, edge cases, mockups in attachments).
 4. **Identify feature type**: new screen, module, extension of an existing feature, component, settings toggle, etc.
-5. **Resolve ambiguity** (see `investigate-contract` for the interactive-vs-`--headless` rule): ask only question(s) that _materially_ change the output; record minor uncertainties as "Assumptions made" and proceed.
-   - _Build, interactive_: use `grill-me` to pressure-test the **scope** until unambiguous. grill-me is a long loop that does **not** hand control back on its own — when the interview concludes, **return to this skill and continue**; do NOT jump to planning or code.
-   - _Build, headless_: skip grill-me; record assumptions and proceed.
+5. **Resolve ambiguity**: ask only question(s) that _materially_ change the output; record minor uncertainties as "Assumptions made". This is the start of the **plan auto-route** (`run-mode` → "Plan"): a fuzzy scope heads toward grilling in Phase 3, a fully-specified one toward accept-as-specified, and a job too big for one session hands off to `/wayfinder` now. _unattended: skip questions; record assumptions and proceed._
 
 ## Phase 2: Ground in the codebase
 
-Use `understand-project` to ground the work in existing code. Don't bulk-read every convention — most features touch only a slice. Read the project's **architecture/structure** conventions by default (they decide module/screen placement)
+Ground the work in existing code. Don't bulk-read every convention — most features touch only a slice. Read the project's **architecture/structure** conventions by default (they decide module/screen placement).
 
 When genuinely unsure whether an area applies, read it — grounding is the point and a wrong plan costs more than one doc. But skip an area the feature plainly never touches.
 
@@ -78,37 +40,27 @@ Output: a similar feature to point at by path, the reusable assets (components/h
 
 Compose the plan from Phases 1-2. Pick the simplest, cleanest solution — reuse existing patterns, fewest files touched, smallest new surface.
 
-- **Investigate** — mid-depth plan: no commit breakdown, no alternatives, no 1:1 commit mapping. Compose the four-section block (Approach / Impacted files / Steps / Test strategy) in the [`investigate-plan-template`](investigate-plan-template.md) format — it becomes the Phase 4 deliverable.
-- **Build** — present the plan **commit by commit** with key implementation details, tests in the same commit as the code they cover:
+Present the plan **commit by commit** with key implementation details, tests in the same commit as the code they cover:
 
-  | File | Action      | Description  |
-  | ---- | ----------- | ------------ |
-  | path | Create/Edit | What changes |
+| File | Action      | Description  |
+| ---- | ----------- | ------------ |
+| path | Create/Edit | What changes |
 
-  Propose refactors in the touched area only if the feature needs them. Organise into ordered atomic commits. Then use `grill-me` to pressure-test the **plan and scope** — same return-guard as Phase 1. **Wait for user approval before proceeding.** _Headless: skip grill-me and the approval wait — record open calls as assumptions and proceed._
+Propose refactors in the touched area only if the feature needs them. Organise into ordered atomic commits. Then hit the **Plan checkpoint** — route it (`run-mode` → "Plan"): accept-as-specified, `/grill-me`, or `/grill-with-docs`; when grilling, **wait for approval before building**, and on return from the interview continue here — do NOT jump to code. _unattended: skip the route — record open calls as assumptions and proceed._
 
-## Phase 4: Post plan to the tracker — _investigate only_
+## Phase 4: Test plan
 
-The plan block is the investigate deliverable; post it via `save-plan-to-tracker`. **Interactive: present in chat, fold in the user's edits, post once they approve** (`investigate-contract` → "Review before posting"). **Headless: post directly, no prompt.** _Build never posts — the PR carries the plan._
+Define the testing strategy before implementing. Check for missing tests on the touched feature and propose to write them. Present a test-plan table (Unit / Integration / E2E — scenario + file); user confirms. Tests are written in Phase 5 alongside the code, test-first at the agreed seams via `/tdd`. _commits auto / unattended: define the plan and proceed without confirmation._
 
-Post the [`investigate-plan-template`](investigate-plan-template.md) block (on top of the `save-plan-to-tracker` mechanics).
+## Phase 5: Implement & verify
 
-**Investigate stops here.** The remaining phases are build only.
+**Precondition**: an approved plan exists (or, unattended, a composed plan) — if you can't point to one, finish Phase 3 first.
 
-## Phase 5: Test plan — _build only_
+Core loop, repeated per commit from the Phase 3 plan:
 
-Define the testing strategy before implementing. Check for missing tests on the touched feature and propose to write them. Present a test-plan table (Unit / Integration / E2E — scenario + file); user confirms. Tests are written in Phase 6 alongside the code. _Headless / code-autopilot: define the plan and proceed without confirmation._
-
-## Phase 6: Implement & verify — _build only_
-
-**Precondition**: a plan exists (auto needs only this); interactive additionally requires it grilled and user-approved — the long grill-me interview is the most common place this gets dropped, so if you can't point to an approved plan, finish Phase 3 first.
-
-Core loop (repeat per commit from the Phase 3 plan):
-
-1. Write code + tests for ONE logical chunk. Read existing tests first and follow their patterns; propose scenarios and implement one at a time.
+1. Write code + tests for ONE logical chunk. Read existing tests first and follow their patterns; propose scenarios and implement one at a time (`/tdd`).
 2. Run the test suite — must stay green. Snapshot failures from ONLY expected structural changes → update them, verify the diff makes sense, proceed. Tests breaking for other reasons → fix first. Include updated snapshots in the same commit as the code that caused them.
-3. **STOP before committing — even for a one-file change.** Mandatory, never skip. List changed files, summarize, say: "Step N done. Please review in your editor and confirm when ready to commit." Do NOT commit without explicit approval. _Headless / code-autopilot: skip steps 3-4 — mutation-smoke any test written (break code → red → revert), then once green commit directly and continue._
-4. Once the user confirms → commit via the `commit` skill.
+3. **Commits checkpoint** — _`--review-commits`: confirm before committing — even a one-file change — via the `commit` skill's confirmation flow._ _default / unattended: commit directly per the [execution core](../run-mode/SKILL.md#execution-core)._
 
 ### Implementation checklist
 
@@ -118,13 +70,14 @@ Core loop (repeat per commit from the Phase 3 plan):
 - [ ] Validate route params / inputs; handle the not-found / invalid path
 - [ ] Follow the project's styling and import conventions
 
-For UI changes: drive the app to the affected screen, observe/screenshot it, and verify visually before asking the user to review. Fetch version-matched library docs when needed. _Headless / code-autopilot: skip interactive UI checks (automated tests only) — flag "visual verification required" in the PR instead._
+For UI changes: drive the app to the affected screen, observe/screenshot it, and verify visually. Fetch version-matched library docs when needed. _unattended: automated tests only during the loop; the running app is checked at Phase 7._
 
-## Phase 7: Document — _build only_
+## Phase 6: Document
 
 Delegate to the `document` skill. Only for hacks, WHY reasoning, architecture deviations, non-trivial decisions. **Skip entirely** if the code is self-explanatory.
 
-## Phase 8: Review & PR — _build only_
+## Phase 7: Review, validate & PR
 
-1. **Review (pre-PR)** — run a code-review pass on the current diff (a subagent works well). Surface findings; **address criticals** before the PR; note the rest for the user. Keep it lightweight — a gate, not a second build loop. _Headless / code-autopilot: fix criticals yourself, then self-repair per [Headless build](#headless-build---headless)._
-2. **Open PR** — ensure all tests pass, propose manual test scenarios for the reviewer, **wait for user confirmation**, then use the `open-pr` skill with the `[Feat]` prefix. _Headless: gate on the full check suite (not just tests), skip the wait, then `open-pr` (draft) with the ⚠️ assumptions banner + 🐞 Suspected bugs, and stop._ _Code-autopilot: same green gate, skip the wait, then `open-pr` (**ready**, plan was approved) with the 🐞 Suspected bugs section._
+1. **Review (pre-PR)** — run `/code-review` on the current diff. Surface findings; **address criticals** before the PR; note the rest for the user. _unattended: fix criticals yourself, then self-repair per the [execution core](../run-mode/SKILL.md#execution-core)._
+2. **App works checkpoint** — validate the running feature (`run-mode` → "App works"): _attended: drive the app / have the user confirm the UI functions — always, before the PR._ _unattended: automated checks only, flag "visual verification required" in the PR._
+3. **PR** — ensure the full check suite passes, then use the `open-pr` skill with the `[Feat]` prefix. _attended: open **ready**; the user **reviews the PR**, then rebase on `main` and **merge** (`run-mode` → "PR"). `--auto-merge`: skip the review, open ready → rebase → merge._ _unattended: open a **draft** with the ⚠️ assumptions banner + 🐞 Suspected bugs, and **stop** — never merge._

@@ -1,158 +1,86 @@
 ---
 name: fix
-description: Debug and fix any non-trivial issue end-to-end, OR triage a bug ticket read-only. Default (`/fix [ticketId]`) = systematic debugging → fix → PR. `--code-autopilot` = same, but once the root cause is user-confirmed the fix runs hands-off to a PR. `--investigate` = read-only bug triage that posts a structured investigation to the ticket (interactive). `--investigate --headless` = the same, fully headless (no questions) — used by a nightly batch.
-argument-hint: [ticketId-or-description] [--investigate] [--code-autopilot] [--headless]
+description: Debug and fix any non-trivial issue end-to-end — ticket or free-text → loop-proven root cause → fix → merged PR. Diagnosis runs loop-first via `/diagnosing-bugs`. Attended by default (you confirm the root cause, validate the running fix, then review + merge). `--unattended` for cloud/CI (task → draft PR — only when a red loop can validate the fix). `--review-commits` to gate each commit; `--auto-merge` to skip the PR review.
+argument-hint: [ticketId-or-description] [--unattended] [--review-commits] [--auto-merge]
 disable-model-invocation: true
 ---
 
-Systematic debugging assistant. One flow of phases; the mode only changes how a few behave (tagged inline).
+Systematic debugging orchestrator. Resolve the run mode via the `run-mode` skill (attended by default, `--unattended` for cloud/CI), then apply this skill's checkpoint map. Signpost each phase and print the resolved mode + toggles up front (`run-mode` → "Signpost each phase").
 
-## Mode selection
+## Mode & checkpoints
 
-1. **Flags**: scan `$ARGUMENTS` for `--investigate`, `--code-autopilot`, and `--headless`; strip them — the remainder is the ticket ID / description.
-2. **Validate**:
-   - `--headless` is only valid with `--investigate`. If alone, **stop and report**: "`--headless` only applies to `--investigate` (headless triage). A headless fix isn't supported — drop `--headless`." (A *fully* headless fix is unsafe because it would self-validate the root cause; `--code-autopilot` is the hands-off fix mode — it keeps root-cause confirmation interactive.)
-   - `--code-autopilot` is **build-only** — invalid with `--investigate` (nothing to execute); if both are passed, stop and report.
-3. **Which phases run**:
-   - **BUILD** (no `--investigate`): all phases 0 → 11.
-   - **INVESTIGATE** (`--investigate`): read-only subset, Phases 1 → 8. Skip Phase 0 (never branches) and 9-11 (never fixes). First use the `investigate-contract` skill (read-only guarantee + interactive-vs-`--headless` behaviour).
+This skill's [`run-mode`](../run-mode/SKILL.md) checkpoints map to:
 
-## Code autopilot (`--code-autopilot`)
+| Checkpoint      | Where                                     | Halts when                              |
+| --------------- | ----------------------------------------- | --------------------------------------- |
+| **Plan** (root cause) | Phase 3 confirm the root cause      | attended: you confirm — see carve-out   |
+| **Commits**     | Phase 6 per-commit                        | `--review-commits`                      |
+| **App works**   | Phase 6 before the PR                     | always (attended)                       |
+| **PR**          | Phase 7 open + merge                      | default; skipped by `--auto-merge`      |
 
-**Interactive debugging, then hands-off fix.** You stay in the loop for every _thinking_ step — the whole diagnostic through the chosen fix approach — then let the fix run itself to a PR. The one thing you never review is the individual commits.
+**Root-cause carve-out (fix's Plan checkpoint is special).** A fix must never be built on a root cause "confirmed" by static inference alone — that self-delusion ships the wrong fix. The safe validator is a **tight red loop** (`/diagnosing-bugs`): a fast, deterministic, agent-runnable command that goes **red** on this exact bug and **green** once fixed. So the Plan checkpoint isn't grill-me/wayfinder — it's root-cause confirmation:
 
-- **Thinking stays interactive** — Phases 1-9 behave exactly as **interactive build**. Critically, **Phase 6 root-cause confirmation is NOT lifted**: no fix is written before you confirm a hypothesis (✅). This is why a fully headless fix is unsupported but code-autopilot is safe — the dangerous self-validation stays with the human.
-- **Execution goes hands-off** — from Phase 10 on, follow the **_code-autopilot_ tags**: apply the fix + spread + prevention, mutation-smoke any test written, run the green gate, then commit directly (no per-commit review) and self-repair while it converges (per the failure discipline the headless builds use).
-- **Opens a ready PR directly** — Phase 11 opens a **ready** PR (root cause and fix were human-approved), skipping the wait gate. Never merge.
+- **Attended** → you confirm the root cause (the loop red + the evidence) before any fix is written.
+- **`--unattended`** → allowed **only because the red loop validates the fix in your place**. If no red loop can be built (`/diagnosing-bugs` "genuinely cannot build a loop"), an unattended fix is unsafe → **stop and report**; never self-validate from inference.
 
-## Progress signposting
-
-The user can't tell which phases ran or were skipped. **Entering each phase, first print a one-line signpost** — `▶ Phase N — <short name>` — then do its work. One terse line. Don't signpost skipped phases.
+Autonomous stretches follow the [execution core](../run-mode/SKILL.md#execution-core).
 
 ## Phase 1: Get the bug
 
 - If `$ARGUMENTS` has a ticket ID, fetch it immediately — title, description, priority, labels, attachments. Scan attachments for links to error-monitoring data.
-- _Build_: without a ticket, collect bug info from the user (or ask whether they'll provide a ticket ID).
-- _Investigate_: a ticket ID is **required** (stop and report if missing). If the issue has an "investigated" label — in `--headless` skip it and report "already investigated"; interactive, mention it and proceed only if a fresh pass is wanted.
+- Without a ticket, collect bug info from the user (_unattended: the task is the input; empty → stop and report_).
 
 ## Phase 2: Understand the bug
 
 1. **Parse title** — module hint from brackets (e.g. `[Auth]` → auth module).
 2. **Parse description** — reproduction steps, environment, error messages, affected users.
 3. **Error-monitoring data** — if a link was found, pull error message, stacktrace, breadcrumbs, affected releases, device/OS distribution. Look for patterns (specific devices? OS versions? recent release only?).
-4. **No monitoring link?** — proactively search your error-monitoring tool with a natural-language query from the title / module / error message. Try 2-3 variants (module name, error type, screen name). If a relevant issue is found, pull its full stacktrace; else note it and proceed.
+4. **No monitoring link?** — proactively search your error-monitoring tool with a natural-language query from the title / module / error message. Try 2-3 variants. If a relevant issue is found, pull its full stacktrace; else note it and proceed.
 5. **Triage** — keep only info pertinent to solving the bug: stacktrace source, breadcrumbs explaining the user flow, discriminating tags. Skip error name (already in title), status, release (unless a regression), OS/device (unless platform-specific).
 6. Summarize: what is the bug, which module, what error, what context exists.
 
-## Phase 3: Understand the system
+## Phase 3: Diagnose the root cause — the Plan checkpoint
 
-Trace the code path. Starting points (use whichever apply):
+Run **`/diagnosing-bugs`** to reach a root cause a **tight red loop** proves (it owns the full loop / reproduce / minimise / instrument discipline). Fix carries two things back:
 
-- Module name from Phase 2 → read that module (hooks, components, utils, state)
-- Stacktrace → read the exact files and lines
-- Error message → grep the codebase for the string
-- API-related → check the relevant client/endpoint hooks
+- The **minimised repro** — it becomes the Phase 6 regression test.
+- The **loop**, red on this bug — the validator behind the Plan checkpoint.
 
-For each relevant file: read it, trace the data flow (entry → processing → error), identify all components/hooks/utils involved, note suspicious patterns (missing error handling, race conditions, implicit assumptions). **Keep a running list of every file analyzed** — it becomes the "code path".
+Settle it per the [root-cause carve-out](#mode--checkpoints):
 
-## Phase 4: Form hypotheses
+- _Attended_: present the evidence (loop red + the code) and **wait for the user to confirm or disprove** before writing any fix.
+- _Unattended_: proceed on the red loop alone. **No loop buildable → stop and report.**
 
-Form 3-5 testable hypotheses (race conditions, null/undefined, stale state, API contract mismatch, environment-specific, recent regression, library bug/misuse). Apply **Evidence discipline** as you write them.
+When a ticket exists, **offer** (attended) to post the diagnosis as a living log on it (`save-plan-to-tracker`) and keep it updated as the fix lands.
 
-### Evidence discipline (read before writing any hypothesis)
-
-The failure mode this kills: you read code, spot a line that _looks_ like the culprit, and present that hunch as fact. A suspicious line is a **clue**, not proof — sounding certain on a clue sends the reader (the user, or a dev acting cold on the ticket) chasing the wrong thing.
-
-Tag every claim as exactly one, never blurred:
-
-- **Proven** — you read the exact code and can quote it (`file:line` + snippet). For a data-flow claim ("`undefined` reaches `X`"), proven means you traced _every hop_, not that the endpoints look connected. Can't paste the code? **Not** proven.
-- **Inferred** — a reasonable deduction you have NOT verified. Inference generates leads — but say so ("I suspect…", "unverified", "haven't traced this"). Never let an inference wear the costume of a finding.
-
-Highest confidence is reserved for hypotheses whose mechanism is backed by quoted code, never for how plausible the story feels. Gut-check before typing: _"Can I paste the code that proves this, or am I pattern-matching?"_
-
-Example:
-
-❌ clue-as-fact: "**H1 (High)** — the crash comes from the player not handling `failed`." (nothing quoted, path never traced — "High" unearned.)
-✅ disciplined: "**H1 (Medium)** — the player may not handle `.failed`. **Proof** `Player.x:142`: handler only has `case .ready`. **⚠️ Critical link**: that `.failed` is actually emitted by the SDK on load error — if it never is, H1 collapses → read the SDK source first."
-
-### Hypothesis format (always maintain)
-
-Bullet points, not a table. Status emoji (⏳ to validate / ✅ confirmed / ❌ disproven) before `Hx`. Maintain in the ticket when one exists.
-
-```
-**⏳ H1 — [short hypothesis title]**
-- **Hypothesis**: [the proposed mechanism — what would cause the bug]
-- **Proof in code**: `path/file:42` + quoted snippet. If nothing to quote, write "none — deduction at this stage".
-- **⚠️ Critical link**: THE single unproven assumption that, if false, collapses the hypothesis — and how to prove/refute it. Dig this FIRST (Phase 5). "none" if everything is proven.
-- **Unverified**: *secondary* assumptions (repro, timing, runtime value) that don't threaten the hypothesis.
-- **Validation**: how to verify at runtime — concrete action, log, test.
-- **Probability**: High / Medium / Low — High only if the mechanism AND its critical link are backed by quoted code.
-```
-
-`⚠️ Critical link` is its own line, not buried in `Unverified`: a flat caveat list hides which one is load-bearing. Isolating it spotlights the exact spot you're most likely to be confidently wrong.
-
-## Phase 5: Dig the critical link
-
-Principle from grill-me: _a question you can answer by reading code, you answer by reading code_ — don't park the critical link as "unverified" and wait. For each hypothesis, prove or refute its **⚠️ Critical link** statically _before_ settling confidence. Dig nearest to farthest, no stopping at the first layer:
-
-1. **Trace the code path** — every hop, assume no intermediate step.
-2. **Read dependency source** — a library's behaviour is readable, not a guess. Use version-matched docs.
-3. **Search for guards** — null checks, error boundaries, try-catch that would prevent the bug.
-4. **Grep for the pattern** — does the same pattern work elsewhere?
-5. **Check git history** — `git log --oneline -20 -- <file>` and `git blame` on suspicious lines.
-6. **Compare with working code** — if a similar feature works, what's different?
-7. **Search the web (library/dep hypotheses only)** — exact error + library + installed version. Fold findings inline into that hypothesis's evidence (URL + one-line takeaway). Skip for pure business-logic bugs.
-
-**This is NOT self-validation.** Proving a mechanism _possible and correct_ by reading code ≠ confirming it _actually happened_ here. Do the first exhaustively yourself; settle the second in Phase 6. Escalate to runtime only for what is genuinely **undecidable statically**: real runtime values, timing/races, device/environment-specific behaviour.
-
-## Phase 6: Settle the root cause
-
-- **Build** — validate with the user at runtime. **NEVER self-validate**: only the user decides confirmed/disproven. For each hypothesis: (1) present evidence split into **proven** (quoted `file:line`, stacktrace, logs you saw) vs **inferred**; (2) propose concrete validation methods — a log line + reproduce, check monitoring breadcrumbs/tags, a try-catch to isolate the call site, `git bisect`, local repro, comment-out by elimination, or driving the app to inspect a visual bug; (3) **wait for the user to confirm or disprove** before updating status. **No fix is written before a hypothesis is user-confirmed (✅).**
-- **Investigate** — no runtime, no user (especially `--headless`). Rate each hypothesis statically: **High** (mechanism AND critical link proven by quoted code, nothing contradicting), **Medium** (mechanism partly code-backed, critical link needs runtime confirmation), **Low** (code contradicts it, or guards already exist). Be honest about limits and always state the runtime test that would close the remaining critical link.
-
-## Phase 7: Bug analysis
+## Phase 4: Bug analysis
 
 Walk the bug-PR template (if the repo has one):
 
 1. **Code analysis** — the "before" snippet; what's wrong and why it causes the bug.
-2. **Spread check** — grep for the same pattern; list every instance.
-3. **Prevention plan** — concrete actions: `[test]` / `[lint]` / `[arch]` / `[doc]`.
+2. **Spread check** — grep for the same pattern; list every instance. Spread instances join the fix scope.
+3. **Prevention plan** — concrete actions: `[test]` / `[lint]` / `[arch]` / `[doc]`. Track each; resolve in Phase 6.
 
-- _Build_: track each prevention item and spread instance; resolve in Phase 10. Spread instances join the fix scope.
-- _Investigate_: post these as **suggestions** only — don't implement.
+## Phase 5: Fix planning
 
-## Phase 8: Post to the tracker
-
-Post the investigation (hypotheses + code analysis + prevention) to the ticket using the `save-plan-to-tracker` skill, then add labels. Available in **both** modes:
-
-- _Investigate_: the block — the [`investigation-template`](investigation-template.md) — is the deliverable. **Interactive: present the draft in chat, fold in the user's edits, post only once they approve** (`investigate-contract` → "Review before posting"). **Headless: post directly, no prompt.**
-- _Build_: when a ticket exists, **offer** it — "Post/update the hypotheses on the ticket?" — and keep it updated as statuses change (a living diagnostic log).
-
-**Label (every mode, every post)**: add an "investigated" label. ⚠️ If the tracker **overwrites** the label set rather than merging, passing only the new label silently drops every existing one (e.g. `bug`). Pass the **union**: reuse the labels from the Phase 1/2 fetch, append the new one, de-duplicated.
-
-**Investigate stops here.** The remaining phases are build only.
-
-## Phase 9: Fix planning — _build only_
-
-Don't jump to the first fix — propose multiple approaches, let the user choose.
+Don't jump to the first fix — propose multiple approaches:
 
 | Fix approach    | Type       | Pros                                  | Cons                      | Effort   | Fixes spread?  | Enables prevention? |
 | --------------- | ---------- | ------------------------------------- | ------------------------- | -------- | -------------- | ------------------- |
 | [Quick patch]   | Patch      | Fast, low risk                        | Doesn't fix root cause    | Low      | Yes/No/Partial | Which items         |
 | [Refactor/arch] | Structural | Fixes root cause, prevents recurrence | More changes, higher risk | Med-High | Yes/No/Partial | Which items         |
 
-Types: **Patch** (guard clause, null check), **Structural** (fix the pattern/architecture), **Upstream** (dependency PR/update/workaround), **Configuration**. Always propose ≥2 approaches when the root cause is architectural; assess whether each fixes the spread; present trade-offs and let the user decide.
+Types: **Patch** (guard clause, null check), **Structural** (fix the pattern/architecture), **Upstream** (dependency PR/update/workaround), **Configuration**. Always propose ≥2 approaches when the root cause is architectural; assess whether each fixes the spread; present trade-offs. _Attended: let the user decide. Unattended: pick the simplest approach that fixes root cause + spread, record the call as an assumption._
 
-## Phase 10: Implement & verify — _build only_
+## Phase 6: Implement & verify
 
 - Apply the chosen fix; fix **all** spread instances; implement the prevention items.
-- Verify the bug is resolved and tests pass.
-- **STOP before committing — even for a one-file change.** Mandatory. List changed files, summarize, say: "Fix ready. Please review in your editor and confirm when ready to commit." Do NOT commit without explicit approval. Never skip this.
-- Once the user confirms → commit via the `commit` skill.
+- **Regression test** — turn the Phase 3 minimised repro into a failing test at a correct seam, watch it fail, apply the fix, watch it pass (`/tdd`). If no correct seam exists, that itself is a finding — note it (the architecture is blocking lockdown). Then re-run the loop against the original, un-minimised scenario.
+- **Cleanup** (from `/diagnosing-bugs`): remove all `[DEBUG-…]` instrumentation (`grep` the prefix), delete throwaway harnesses, and state the winning hypothesis in the commit/PR message so the next debugger learns.
+- **Commits checkpoint** — _`--review-commits`: confirm before committing via the `commit` skill's confirmation flow._ _default / unattended: commit directly per the [execution core](../run-mode/SKILL.md#execution-core)._
+- **App works checkpoint** — before the PR, confirm the bug is gone in the running app (`run-mode` → "App works"): _attended: drive the app / have the user confirm — always._ _unattended: the loop green is the proof; flag "visual verification required" for any UI aspect it couldn't drive._
 
-_Code-autopilot: skip the STOP gate — mutation-smoke any test written (break code → red → revert), run the green gate (type-check + lint + format + tests), then commit directly and self-repair while it converges (each round must clear a distinct new failure; on a repeat/no-progress, do not open a PR — flag the owner and stop). The Phase 6 root-cause confirmation still held, so there is a user-approved hypothesis behind this fix._
+## Phase 7: Review & PR
 
-## Phase 11: Review & PR — _build only_
-
-1. **Review (pre-PR)** — run a code-review pass on the current diff (a subagent works well). Surface findings; **address criticals** (real bugs, regressions in the fix) before the PR; note the rest for the user. Keep it lightweight — a gate, not a second debugging loop. _Code-autopilot: fix criticals yourself before the PR._
-2. **Open PR** — assemble from Phase 7 (fill the "after" snippet; "before" was captured there). Commit fix + tests + spread fixes. Use the `open-pr` skill with the `[Fix]` prefix and the `bug` label. _Code-autopilot: skip the confirmation wait — open a **ready** PR directly (root cause and fix were approved), leading the body with a **🐞 Suspected bugs** section from the review pass. Never merge._
+1. **Review (pre-PR)** — run `/code-review` on the current diff. Surface findings; **address criticals** (real bugs, regressions in the fix) before the PR; note the rest for the user. _unattended: fix criticals yourself, then self-repair per the [execution core](../run-mode/SKILL.md#execution-core)._
+2. **PR** — assemble from Phase 4 (fill the "after" snippet; "before" was captured there). Commit fix + tests + spread fixes. Use the `open-pr` skill with the `[Fix]` prefix and the `bug` label. _attended: open **ready**; the user **reviews the PR**, then rebase on `main` and **merge** (`run-mode` → "PR"). `--auto-merge`: skip the review, open ready → rebase → merge._ _unattended: open a **draft** with the ⚠️ assumptions banner + 🐞 Suspected bugs, and **stop** — never merge._

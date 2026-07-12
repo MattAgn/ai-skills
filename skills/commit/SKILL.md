@@ -26,7 +26,7 @@ Always present the full plan and wait for explicit approval before running `git 
 
 Wait for approval; if the user requests changes, adjust and re-present. This applies to regular commits, fixups, and commits triggered during the open-pr workflow.
 
-**Exception — autonomous callers.** When invoked from a skill running in an autonomous mode (`--headless`, or `--code-autopilot` past its plan-approval gate), skip the confirmation and commit directly — that caller has already established there is no per-commit review. The message format and atomic-split rules below still apply.
+**Exception — autonomous callers.** When invoked from a skill that has established there is no per-commit review (an autonomous run — `--unattended`, or an attended run without `--review-commits` — see `run-mode`), skip the confirmation and commit directly. The message format and atomic-split rules below still apply.
 
 ## Auto-Fixup Detection
 
@@ -56,8 +56,6 @@ For commits you create on a branch, use this fixed format. Do not derive it from
 **Example:** `chore: add error monitoring`
 
 **Summary line:** must be under 72 characters (count before committing); be specific. If too long, shorten — abbreviate scope, drop filler words.
-
-**Do not copy main's format:** `main` may use a different style (e.g. bracketed, capitalized `[Chore] Add X`) because squash-merges take their message from the PR title. Do not imitate that — branch commits always use the lowercase `chore: add x` shape regardless of `main`'s history.
 
 **Detailed description:** add only when not obvious to a junior developer. Explain WHAT only if the commit touches more than 3 files; always explain WHY and any important context.
 
