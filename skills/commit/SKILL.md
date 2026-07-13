@@ -30,6 +30,8 @@ Wait for approval; if the user requests changes, adjust and re-present. This app
 
 ## Auto-Fixup Detection
 
+**Skip under `--auto-merge`.** Fixups exist to keep branch history readable for PR review; `--auto-merge` skips that review (see `run-mode`), so the tidying earns nothing — commit normally.
+
 Before creating a new commit, check whether the staged changes belong in a recent commit on the current branch:
 
 1. List branch commits: `git log main..HEAD --oneline`.
